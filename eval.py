@@ -10,6 +10,7 @@ sys.stderr = open(sys.stderr.fileno(), mode='w', buffering=1)
 
 import os
 import pathlib
+import pprint
 import click
 import hydra
 import torch
@@ -30,6 +31,7 @@ def main(checkpoint, output_dir, device):
     # load checkpoint
     payload = torch.load(open(checkpoint, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
+    pprint.pprint(dict(cfg), indent=2)
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg, output_dir=output_dir)
     workspace: BaseWorkspace

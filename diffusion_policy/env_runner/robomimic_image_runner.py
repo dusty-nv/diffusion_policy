@@ -1,4 +1,5 @@
 import os
+import time
 import wandb
 import numpy as np
 import torch
@@ -9,6 +10,7 @@ import h5py
 import math
 import dill
 import wandb.sdk.data_types.video as wv
+
 from diffusion_policy.gym_util.async_vector_env import AsyncVectorEnv
 from diffusion_policy.gym_util.sync_vector_env import SyncVectorEnv
 from diffusion_policy.gym_util.multistep_wrapper import MultiStepWrapper
@@ -19,6 +21,9 @@ from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.env_runner.base_image_runner import BaseImageRunner
 from diffusion_policy.env.robomimic.robomimic_image_wrapper import RobomimicImageWrapper
+
+from gym import logger
+
 import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.obs_utils as ObsUtils
@@ -63,7 +68,8 @@ class RobomimicImageRunner(BaseImageRunner):
             past_action=False,
             abs_action=False,
             tqdm_interval_sec=5.0,
-            n_envs=None
+            n_envs=None,
+            verbose=False,
         ):
         super().__init__(output_dir)
 
@@ -215,8 +221,8 @@ class RobomimicImageRunner(BaseImageRunner):
             env_prefixs.append('test/')
             env_init_fn_dills.append(dill.dumps(init_fn))
 
-        env = AsyncVectorEnv(env_fns, dummy_env_fn=dummy_env_fn)
-        # env = SyncVectorEnv(env_fns)
+        #env = AsyncVectorEnv(env_fns, dummy_env_fn=dummy_env_fn)
+        env = SyncVectorEnv(env_fns)
 
 
         self.env_meta = env_meta
@@ -234,7 +240,8 @@ class RobomimicImageRunner(BaseImageRunner):
         self.rotation_transformer = rotation_transformer
         self.abs_action = abs_action
         self.tqdm_interval_sec = tqdm_interval_sec
-
+        self.verbose = verbose
+        
     def run(self, policy: BaseImagePolicy):
         device = policy.device
         dtype = policy.dtype
@@ -273,7 +280,7 @@ class RobomimicImageRunner(BaseImageRunner):
 
             env_name = self.env_meta['env_name']
             pbar = tqdm.tqdm(total=self.max_steps, desc=f"Eval {env_name}Image {chunk_idx+1}/{n_chunks}", 
-                leave=False, mininterval=self.tqdm_interval_sec)
+                leave=True, mininterval=self.tqdm_interval_sec)
             
             done = False
             while not done:
@@ -289,10 +296,23 @@ class RobomimicImageRunner(BaseImageRunner):
                     lambda x: torch.from_numpy(x).to(
                         device=device))
 
+                if self.verbose:
+               	  print('OBS', list(obs_dict.keys()))
+                  for k,v in obs_dict.items():
+                    try:
+                      print(k, type(v), v.shape)
+                    except:
+                      print(k, type(v))
+                            
                 # run policy
                 with torch.no_grad():
+                    time_begin = time.perf_counter()
                     action_dict = policy.predict_action(obs_dict)
-
+                    time_elapsed = time.perf_counter() - time_begin
+                    if self.verbose:
+                      print(f"{policy.__class__.__name__}.predict_action()  {time_elapsed*1000:.2f} ms")
+                    
+                        
                 # device_transfer
                 np_action_dict = dict_apply(action_dict,
                     lambda x: x.detach().to('cpu').numpy())
